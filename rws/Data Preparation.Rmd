@@ -1,0 +1,470 @@
+---
+title: "MSDS692"
+output: html_notebook
+---
+
+All data was downloaded from Google Analytics. With the files, External Tables were created in a database.
+The csv format provided could not be used without modfications. Reasons include special characters in data block as well as column names (like slash, parantheses, currency sumbol, quotation marks, etc.), reserved database field names (like DATE)
+
+Logically, the downloads separate into the following blocks:
+- MDBC: mobile device data before change of web site (up to 3 weeks of data) to responsive design
+- DDBC: desktop device data before change of web site (up to 3 weeks of data) to responsive design
+- MDAC: mobile device data after change of web site (up to 3 weeks of data) to responsive design
+- DDAC: desktop device data after change of web site (up to 3 weeks of data) to responsive design
+- ADET: all device data for the entire time available (a little over 3 years), i.e. before and after the change of web site to responsive design
+
+Data Preparation step 1 - Preparing the Google Analytics export files
+---------------------------------------------------------------------
+1) each file name is shortened to its containing secondary dimension (attribute)
+2) the content of each file is stripped from unnecessary lines - only one header line and data to be processed remain
+3) header line ist stripped of all blanks so the field name can be derived from this line
+4) the cleansed content is written to new files in a separate directory
+```{r PrepareFiles}
+
+library("stringr")
+
+#General parameters defining type of data sets and respectively their location - Check for each run and change accordingly
+#-------------------------------------------------------------------------------------------------------------------------
+#path for csv files to be processed, i.e.: "/home/oracle/Desktop/MSDS692/rws/datasets/input/before_change/Desktop/"
+sInputPath      <- "/home/oracle/Desktop/MSDS692/rws/datasets/input/all_data/"
+#path for processed csv files, i.e.: "/home/oracle/Desktop/MSDS692/rws/datasets/output/before_change/Desktop/"
+sOutputPath     <- "/home/oracle/Desktop/MSDS692/rws/datasets/output/all_data/"
+#abbreviation of the data set block (see intro above), i.e.: "DDBC_"
+sBlock          <- "ADET_"
+
+#Reading file names
+files <- list.files( sInputPath )
+
+#the marker is part of all file names and delineates the first part of the file name from the secondary dimension name
+sFileNameMarker <- " # "
+
+#Looping through the files
+for( sFileName in files )
+   {
+     print( paste( "Processing File:", sFileName ) ) #show processing status on file level
+     ilength <- str_length( sFileName ) #length of file name, used for substr later on
+     #finding the beginning of the string for the new file name in old name
+     sn <- str_locate( sFileName, sFileNameMarker )
+     #building the name of the file in which to copy the valid lines
+     sNewFilename <- paste( sOutputPath, sBlock, substr( sFileName, sn[,2] + 1, ilength ), sep = "" )
+     sFilePathName <- paste( sInputPath, sFileName, sep = "" ) #adding path to file name
+     conn <- file( sFilePathName, open = "r" ) #open file connector
+     linn <- readLines( conn ) #read line by line
+     iLoop <- 0 #loop counter for the exit condition
+     sBailOutLine <- grep( ",,", linn ) #to identify the row, where reading stops => ,,"£ 
+     for( iLine in 1:length( linn ) ) #looping through the lines per file
+        { 
+          if( (iLoop > 5) & (iLoop < sBailOutLine - 1) ) #start processing after header and stop before footer
+          {
+            if( iLoop == 6 ) #this is the header line, containing field names, which need to be stripped of blanks
+            {
+               #appending header line
+               sObjectTmpName <-  str_split_fixed( linn[iLine], ",", 2 )
+               sNewHeader <- paste( "SD_", sObjectTmpName[1,2], sep = "" )
+               sNewHeader <- gsub( "[()/ ]", "_", paste( sObjectTmpName[1,1], ",", sNewHeader, sep = "" ) )
+               write( sNewHeader, file = sNewFilename, append = TRUE )
+            }
+            else
+            {
+              #replace all quotation marks to make string replacement easier
+              temp <- str_replace_all( linn[iLine], pattern = '"', replacement = '#')
+              #split line in 3 parts to isolate problematic number in the middle, containing double quotation marks and comma
+              tempsplit <- str_split_fixed(temp, "##", 3)
+              sBeginning <- gsub( "[£#]", "", tempsplit[1,1] ) #clear the first part of currency sign and hash
+              sEnd <- gsub( "[£#]", "", tempsplit[1,3] ) #clear the last part of currency sign and hash
+              sMiddle <- gsub( "[£,]", "", tempsplit[1,2]) #clear the middle part of currency sign and comma
+              sNewLine <- paste( sBeginning, sMiddle, sEnd, sep = "" ) #piece all parts together in one line
+              write( sNewLine, file = sNewFilename, append = TRUE ) #appending each line to new file
+            }
+          }
+        iLoop <- iLoop + 1 #incrementing loop counter
+      }
+      close( conn ) #close file connector
+   }
+```
+
+Data Preparation step 2 - Generating create statements for External Tables based on new input files
+---------------------------------------------------------------------------------------------------
+1) Form the DB object name based on the file name
+2) Eliminate any special character from header line, so the content can be used as column names for the tables
+3) Build the Create Table statement
+4) Write all Create Tables statements to one script file that can be used on SQL command line
+```{r GenerateDDLScripts}
+library("stringr")
+library("stringi")
+
+#General parameters defining type of data sets and respectively their location - Check for each run and change accordingly
+#-------------------------------------------------------------------------------------------------------------------------
+#path for the processed csv files from step 1, i.e.: "/home/oracle/Desktop/MSDS692/rws/datasets/output/before_change_Desktop/"
+sInputPath     <- "/home/oracle/Desktop/MSDS692/rws/datasets/output/all_data/"
+#path for the SQL file containing the DDL statements, i.e.: "/home/oracle/Desktop/MSDS692/rws/SQL/output/"
+sOutputPath    <- "/home/oracle/Desktop/MSDS692/rws/SQL/output/"
+#database path for data files (processed csv files) of External Tables, i.e.: "rws_out_ddbc"
+sDBDirSource   <- "rws_out_adet"
+#database path for error / log / discard files created by external table reads, i.e.: "rws_out_eld"
+sDBDirTarget   <- "rws_out_eld"
+#prefix for the External Tables, according to the abbreviation of the data set block (see intro above), i.e.: "DDBC_"
+sTablePrefix   <- "ADET"
+
+#Reading file names
+files <- list.files( sInputPath )
+
+#file containing DDL statements for creating External Tables, i.e.: "CreateDDBC.sql"
+sOutFile <- paste( sOutputPath, "Create", sTablePrefix, ".sql", sep = "" )
+
+temp <- files
+
+#Looping through the files
+for( sFileName in files )
+{
+     #reading file to extract all lines and to prepare renaming of secondary dimension by adding sd_ prefix
+     #-----------------------------------------------------------------------------------------------------
+     ilength <- str_length( sFileName )
+     fileName <- paste( sInputPath, sFileName, sep = "" ) #adding path to file name
+     fConnInFiles <- file( fileName, open = "r" ) #open file connector
+     linn <- readLines( fConnInFiles ) #read file line by line
+     close( fConnInFiles ) #close file connector
+     sHeader <- linn[1] #reading header, needed to get field name for secondary dimension
+     tempsplit <- str_split_fixed( sHeader, ",", 2 ) #first step in isolating field name
+     sDimension <- str_split_fixed( tempsplit[1,2], ",", 2 ) #isolating secondary dimension
+     #building the dynamic content for the create statement
+     sField2 <- sDimension[1,1]
+     #Initializing sFileCount to satisfy condition for generating statements
+     sFileCount <- 1
+     
+     #stripping suffix of the file name
+     sFilePrefix <- gsub( ".csv", "", sFileName )
+
+     #Making column names in header line compliant with table column/field name for the database
+     #------------------------------------------------------------------------------------------
+     #stripping group name of secondary dimension to avoid DB object names > 30 characterss
+     sObjectTmpName <- str_split_fixed( sFilePrefix, " ", 2 ) #isolating second part of dimension name
+     #replacing blanks and parantheses with underscores
+     sObjectName <- paste( sTablePrefix
+                         , "_"
+                         , substr( gsub( "[()/ 0123456789]"
+                                       , ""
+                                       , sObjectTmpName[1,2]
+                                       )
+                                 , 1
+                                 , str_length( sObjectTmpName[1,2] )
+                                 )
+                         , sep = ""
+                         )
+      
+     #handling multiple files - since downloads in GA are limited to 5000 rows, the following brings them together logically
+     #----------------------------------------------------------------------------------------------------------------------
+     #getting the vector index of the file names that correspond to the current one for multiple download file handling
+     iaFiles <- grep( gsub("[0123456789]", "", sFileName), gsub("[0123456789]", "", files) )
+     print( paste( "Processing File:", sFileName ) )
+     #generating list of source files, based on number of files per secondary dimension download
+     iNumSourceFiles <- 0 #number of downloaded file per secondary dimension download
+     iaETFiles <- NULL
+     for( iFileHit in iaFiles ) #looping through the vector referencing the files with the same beginning as the current one
+     {
+       if( str_length( files[iFileHit] ) == str_length( sFileName ) )
+       {
+         if( iNumSourceFiles == 1)
+         {
+           iaETFiles <- files[iFileHit] #only one file belonging to the download
+         }
+         else
+         {
+           iaETFiles <- c( iaETFiles, files[iFileHit] ) #list of files belonging to the download         
+         }
+         iNumSourceFiles <- iNumSourceFiles + 1
+       }
+     }
+     #the following will only work up to 99 download files for secondary dimension exports / downloads
+     #checking for the first of multiple files for one secondary dimension - no need to loop for the remaining multiple files
+     iCurrentFileCounter <- "1"
+     if( (iNumSourceFiles > 1) & (iNumSourceFiles < 10) ) #less than 10 files in download
+     {
+       iCurrentFileCounter <- gsub( " ", "", substr( sFilePrefix, str_length( sFilePrefix ) - 1, str_length( sFilePrefix ) ) )
+     }
+     if( (iNumSourceFiles > 1) & (iNumSourceFiles > 9) ) #10 or more files in the download
+     {
+       iCurrentFileCounter <- gsub( " ", "", substr( sFilePrefix, str_length( sFilePrefix ) - 2, str_length( sFilePrefix ) ) )
+     }
+     
+     sSourceFiles <- NULL
+     #for the first of multiple download files, the list of source files does not start with a comma
+     if( (iCurrentFileCounter == "1") | (iCurrentFileCounter == "01" ) | ( iNumSourceFiles == 1 ) )
+     {
+       sSourceFiles <- paste( "'", sFileName, "'", sep = "" )
+       
+       #concatenate list of files for multiple files download
+       if( iNumSourceFiles > 1 )
+       {
+         #add the remaining files to the first one
+         i <- 2
+         while( i <= iNumSourceFiles )
+         {
+           sSourceFiles <- paste( sSourceFiles
+                                , ", '"
+                                , files[iaFiles[i]]
+                                , "'"
+                                , sep = ""
+                                )
+           i <- i + 1
+         }
+       }
+     }
+
+     #DDL statements are only created for first file of multiple files or a single file
+     if( (iCurrentFileCounter == "1") | (iCurrentFileCounter == "01" ) | ( iNumSourceFiles == 1 ) )
+     {
+       #log / bad / discard file names
+       sLogFile  <- paste( sObjectName, ".log",  sep = "" )
+       sBadFile  <- paste( sObjectName, ".bad",  sep = "" )
+       sDiscFile <- paste( sObjectName, ".disc", sep = "" )
+       #Lines to be written to DML file
+       sLine01 <- paste( "DROP TABLE ", sObjectName, ";", sep = "" )
+       sLine02 <- paste( "CREATE TABLE", sObjectName )
+       sLine03 <-        "( transaction_id               VARCHAR2(25)" 
+       sLine04 <- paste( ", ", sField2, "                 VARCHAR2(4000)")
+       sLine05 <-        ",  revenue                      NUMBER"
+       sLine06 <-        ",  tax                          NUMBER"
+       sLine07 <-        ",  shipping                     NUMBER"
+       sLine08 <-        ",  refund_amount                NUMBER"
+       sLine09 <-        ",  quantity                     NUMBER"
+       sLine10 <-        ")"
+       sLine11 <-        "ORGANIZATION EXTERNAL"
+       sLine12 <-        "( TYPE ORACLE_LOADER"
+       sLine13 <- paste( "  DEFAULT DIRECTORY", sDBDirSource )
+       sLine14 <-        "  ACCESS PARAMETERS( RECORDS DELIMITED BY NEWLINE"
+       sLine15 <- paste( "                     LOGFILE     ", sDBDirTarget, ": '", sObjectName, ".log'", sep = "" )
+       sLine16 <- paste( "                     BADFILE     ", sDBDirTarget, ": '", sObjectName, ".bad'", sep = "" )
+       sLine17 <- paste( "                     DISCARDFILE ", sDBDirTarget, ": '", sObjectName, ".disc'", sep = "" )
+       sLine18 <-        "                     FIELDS TERMINATED BY ','"
+       sLine19 <-        "                     MISSING FIELD VALUES ARE NULL"
+       sLine20 <-        "                   )"
+       sLine21 <-        "  LOCATION"
+       sLine22 <-        "  ("
+       sLine23 <- paste( "    ", sDBDirSource, ": ", sSourceFiles, sep = "" )
+       sLine24 <-        "  )"
+       sLine25 <-        ")"
+       sLine26 <-        "REJECT LIMIT UNLIMITED"
+       sLine27 <-        ";"
+       
+       #writing above lines to DML file
+       cat(       sLine01
+          , "\n", sLine02
+          , "\n", sLine03
+          , "\n", sLine04
+          , "\n", sLine05
+          , "\n", sLine06
+          , "\n", sLine07
+          , "\n", sLine08
+          , "\n", sLine09
+          , "\n", sLine10
+          , "\n", sLine11
+          , "\n", sLine12
+          , "\n", sLine13
+          , "\n", sLine14
+          , "\n", sLine15
+          , "\n", sLine16
+          , "\n", sLine17
+          , "\n", sLine18
+          , "\n", sLine19
+          , "\n", sLine20
+          , "\n", sLine21
+          , "\n", sLine22
+          , "\n", sLine23
+          , "\n", sLine24
+          , "\n", sLine25
+          , "\n", sLine26
+          , "\n", sLine27, "\n"
+          , "\n"
+          , file = sOutFile
+          , append = TRUE
+          )
+     }
+}
+
+```
+
+Determine sample size needed for a statistically significant ANOVA test:
+```{r}
+library(pwr)
+
+#the following calculates the number of sample records needed, given a target P value of 0.05
+#meaning of the variables:
+# k         = number of groups
+# n         = common number of samples in each group (assuming groups of equal size)
+# f         = expected effect on size (0.1 for small, 0.25 for medium, .4 for large)
+# sig.level = level of significance (typically 5%)
+# power     = power of test (typically larger than 90%)
+pwr.anova.test(k = 4, n = , f = 0.1, sig.level = 0.05, power = 0.9)
+```
+As shown above, at least 355 records ("n") are required in each group for statistically significant ANOVA test.
+
+Read tables and analyze statistical significance of data set
+```{r CreateDBConnection}
+#install.packages("ROracle") #native Oracle Call Interface access to Oracle RDBMS
+library( ROracle )
+drv  <- dbDriver( "Oracle" ) #this driver is used for connecting to DB
+host <- "localhost"          #connection details: server name of Oracle instance
+port <- 1521                 #connection details: port, the instance can be reached under
+sid  <- "orcl"               #connection details: name of the DB instance
+connect.string <- paste(
+ "(DESCRIPTION=",
+ "(ADDRESS=(PROTOCOL=tcp) (HOST=", host, ") (PORT=", port, "))",
+ "(CONNECT_DATA=(SID=", sid, ")))", sep = "") #connection details: entire connect string with
+con <- dbConnect( drv, username = "rws", password = "welcome1", dbname=connect.string) #connection handler
+
+```
+
+For the Desktop shop, 3 days right before the change of the shop held 503 transactions (2 days would not have exceeded 355 records)
+```{sql connection=con}
+SELECT Count( 'Transaction' )       AS Number_of_Transactions 
+     , Count( Distinct( sd_date ) ) AS Days
+  FROM v_ddbc
+ WHERE sd_date < '20170508'
+   AND sd_date > '20170504'
+```
+
+For the Mobile shop, 9 days held 376 transaction (8 days would not have exceeded 355 records)
+```{sql connection=con}
+SELECT Count( 'Transaction' )       AS Number_of_Transactions 
+     , Count( Distinct( sd_date ) ) AS Days
+  FROM v_mdbc
+ WHERE sd_date < '20170508'
+   AND sd_date > '20170429'
+```
+
+For the fusion shop 18 days held 381 transactions (17 days would not have exceeded 355 records)
+```{sql connection=con}
+SELECT Count( 'Transaction' )       AS Number_of_Transactions 
+     , Count( Distinct( sd_date ) ) AS Days
+  FROM v_adet
+ WHERE sd_date > '20170508'
+   AND sd_date < '20170527'
+```
+The above results define the required data sets for ANOVA
+
+The following datasets are based on the filtering shown above, to allow for groups of similar size
+```{r ReadingDataSets}
+#build a training set for transaction with mobile shop before change
+ddbc <- dbSendQuery( con
+                   , "SELECT transaction_id
+                           , sd_date
+                           , revenue
+                      FROM v_ddbc
+                     WHERE sd_date < '20170508'
+                       AND sd_date > '20170504'"
+                   )
+#load the records read to a data frame
+desktopsample <- fetch( ddbc )
+dim( desktopsample )
+print( desktopsample[,3] )
+
+#build a training set for transactions with desktop shop before change
+mdbc <- dbSendQuery( con
+                   , "SELECT transaction_id
+                           , sd_date
+                           , revenue
+                      FROM v_mdbc
+                     WHERE sd_date < '20170508'
+                       AND sd_date > '20170429'"
+                   )
+#load the records read to a data frame
+mobilesample <- fetch( mdbc )
+dim( mobilesample )
+print( mobilesample[,3] )
+
+#build a training set for transactions with responsive shop after change
+adet <- dbSendQuery( con
+                   , "SELECT transaction_id
+                           , sd_date
+                           , revenue
+                      FROM v_adet
+                     WHERE sd_date > '20170508'
+                       AND sd_date < '20170527'"
+                   )
+#load the records read to a data frame
+responsivesample <- fetch( adet )
+dim( responsivesample )
+print( responsivesample[,3] )
+
+#build a training set for all the above transactions
+mdr  <- dbSendQuery( con
+                   , "SELECT 'Desktop'
+                           , transaction_id
+                           , sd_date
+                           , revenue
+                        FROM v_ddbc
+                       WHERE sd_date < '20170508'
+                         AND sd_date > '20170504'
+                      UNION                       
+                      SELECT 'Mobile'
+                           , transaction_id
+                           , sd_date
+                           , revenue
+                        FROM v_mdbc
+                       WHERE sd_date < '20170508'
+                         AND sd_date > '20170429'
+                      UNION
+                      SELECT 'Responsive'
+                           , transaction_id
+                           , sd_date
+                           , revenue
+                        FROM v_adet
+                       WHERE sd_date > '20170508'
+                         AND sd_date < '20170527'"
+                   )
+#load the records read to a data frame
+allsample <- fetch( mdr )
+dim( allsample )
+print( allsample[,3] )
+```
+
+Plotting to check visually if revenue are of equal nature between Mobile / Desktop / Responsive shops
+```{r}
+boxplot( allsample[,4]~allsample[,1], data=allsample, main=toupper("Revenues by Shop"), xlab="Shop Type", ylab="Revenue", col="skyblue" )
+```
+The above boxplot shows that the data is rather different for each shop. The midline (median) of Responsive shop revenues is higher compared to Desktop and Mobile shops. The same can be said for the upper and lower limits of the Resonsive box (the third and first quartile / 75th and 25th percentile), which are much further away from the median compared to the Desktop and Mobile boxes. The same can be said of the "circles" (outliers), which are much further away from the median, as compared to the ones of the Mobile and Desktop boxes.
+
+Testing for homogeneity of variance (i.e.: Homoscedasticity / performing Bartlet's test)
+```{r}
+bartlett.test( allsample[,4]~allsample[,1], allsample )
+```
+With a p-value of 0.00000000000000022 being far below 0.05, the Null Hypothesis that the variances are equal between the groups can be rejected. In other words, the test above shows a heteroscedasticity.
+
+As a result, a one way ANOVA test with the aov function would not be appropriate. Instead, the oneway function is used.
+```{r}
+oneway.test( allsample[,4]~allsample[,1], allsample )
+```
+
+
+
+ANOVA
+```{r}
+mdbcAOV <- aov(mobilesample[,3] ~ mobilesample[,2])
+summary( mdbcAOV )
+ddbcAOV <- aov(desktopsample[,3] ~ desktopsample[,2])
+summary( ddbcAOV )
+adetAOV <- aov(responsivesample[,3] ~ responsivesample[,2])
+summary( adetAOV )
+```
+With an F-statistic of 5.193 and a P-value of 0.000004, the null hypothesis can be rejected for mobile data.
+With an F-statistic of 2.58 and a P-value of 0.0172, the null hypothesis can be rejected for desktop data.
+Hence, time is a factor on revenue for mobile and desktop based revenues.
+
+
+Tukey
+```{r}
+TukeyHSD(x, which, ordered = FALSE, conf.level = 0.95, ...)
+```
+
+
+T test would require comparing trasactions on a customer basis (compare transactions on a customer level before and after change)
+```{r}
+before_mobile 
+```
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
