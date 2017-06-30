@@ -1,36 +1,66 @@
 ---
-title: "MSDS692"
-output: html_notebook
+title: "Responsive Web Shop"
+output:
+  html_document: null
+  pdf_document: default
+  word_document: default
 ---
 
-All data was downloaded from Google Analytics. With the files, External Tables were created in a database.
-The csv format provided could not be used without modfications. Reasons include special characters in data block as well as column names (like slash, parantheses, currency sumbol, quotation marks, etc.), reserved database field names (like DATE)
+Overview
+========
+The analytics in this notebook covers a web shop that was fused from Desktop and Mobile variants into Responsive design, which accommodates for any device. The underlying hypothesis is, that the Responsive design had an effect on conversion rates (i.e. revenues) and or new visitors to the site and their transactions. To challenge this hypothesis, the null hypothesis holds that the new web shop does not affect conversion rates or transactions of new visitors. To prove the validity of the hypotheses, data was downloaded from Google Analytics (GA), to form the basis of the underlying analytics. It should be noted, that the value of the analytics increase by including additional information, such as non-transactional data. Especially data about bouncers (visitors who have left the site without purchasing) and detail about them and / or their sessions but also influencing details like marketing campaigns (content, reach, etc.) can help to weigh the outcome of these analytics. Such inclusions were not possible due to time contraints but should be considered for further analytics.
 
-Logically, the downloads separate into the following blocks:
-- MDBC: mobile device data before change of web site (up to 3 weeks of data) to responsive design
-- DDBC: desktop device data before change of web site (up to 3 weeks of data) to responsive design
-- MDAC: mobile device data after change of web site (up to 3 weeks of data) to responsive design
-- DDAC: desktop device data after change of web site (up to 3 weeks of data) to responsive design
-- ADET: all device data for the entire time available (a little over 3 years), i.e. before and after the change of web site to responsive design
+The analytics were based on two logical sets of data, to perform analytics from two perspectives:
 
-Data Preparation step 1 - Preparing the Google Analytics export files
----------------------------------------------------------------------
-1) each file name is shortened to its containing secondary dimension (attribute)
-2) the content of each file is stripped from unnecessary lines - only one header line and data to be processed remain
-3) header line ist stripped of all blanks so the field name can be derived from this line
-4) the cleansed content is written to new files in a separate directory
-```{r PrepareFiles}
+1) The first set of data contains revenues figures and were downloaded from the "conversions" -> "ecommerce" -> "sales performance" reports in Google Analytics. This set of data covers all data since February 2013 and it was used to assess potential impact on revenues. Rather than just comparing absolute actual figures, forecasts were made on the basis of different scenarios.
 
+To allow for detail level analytics (as opposed to high level / aggregated analyses), revenue data was downloaded from GA (https://www.quora.com/Is-there-any-way-to-export-Google-Analytics-data-into-a-CSV-file) along with all relevant attributes ("secondary dimensions"). Revenue data are provided on a transaction level (lowest grain). Most other data in GA come aggregated only and, thus, are not suited for detail data driven analytics below. 
+
+2) The second set of data features some details not addressed in the first data set. It goes beyond the sessions that lead to transactions and covers information like bounce rates, distinction between new or returning visitors, etc.
+
+Like above, csv exports were created - in this case via the "audience" -> "user explorer" reports. As opposed to the above, this data does cover transaction detail level. Rather, it is based on the so called client-id, which is in essence an approximation to identifying individuals on the grounds of certain session details and cookies. Depending on the user intentional or unintentional masking of his/her identity, a client-id does not necessarily equate to one individual. Rather one person may be depicted by various client-ids. This potentially distorts outcome - different client-ids may show similar behaviour but only because they may be one and the same person (as opposed to different individuals acting alike in web shop).
+
+The data retrieval mentioned above is only one way of downloading GA data and it provides data quickly and easily. However, the process of downloading many details (in this case resulting in downloading several hundred csv export files), as required for this task, ultimately renders this approach inefficient considering the effort and time it takes to download all details. For repeated detail level downloading, Google has provided other means like for instance an R API, that allows for integration in automated processes (http://code.markedmondson.me/googleAnalyticsR/).
+
+The files downloaded, were then used via External Tables created im an Oracle database (http://allthingsoracle.com/external-tables-an-introduction/). Tables ease data handling like when defining or filtering data sets, as well as facilitate complimentary querying. It also eases repeated processing of downloads and supports the inclusion of additional downloads to an existing data set.
+
+The csv format provided through the GA downloads, cannot be used without modfications. Reasons include special characters in data blocks as well as column names (like slashes, parantheses, currency sumbols, quotation marks), reserved database field names (like DATE), etc. In addition each file contains header lines as well as extensive "appendix information" that had to be filtered, before the file content can be put to database use.
+
+Logically, the downloads separate into the following logical parts (the four letter acronyms are used in the R and SQL programming below, as well):
+
+- MDBC: Mobile shop data before change of web site to Responsive design (up to 3 weeks of data) 
+- DDBC: Desktop shop data before change of web site to Responsive design (up to 3 weeks of data) 
+- ADET: Responsive shop data for the entire time available (from February 2013 to June 2017), i.e. before and after the change of the web shop to Responsive design
+
+The following analytics are divided into blocks (which in turn are subdivided in several steps):
+
+I   - Data Preparation (preparing GA download files and their content for later usage in database and R)
+
+II  - Data Exploration, Experimental Design and Hypothesis Testing (finding if there is statistical relevance to approach)
+
+III - Analytics (applying models to the data sets for forecasting and to find correlations, so they exist)
+
+
+I - Data Preparation - Revenue Forecast
+=======================================
+Step 1 - Preparing Google Analytics export files
+------------------------------------------------
+Summary:
+- each file name is shortened to its containing secondary dimension (attribute)
+- the content of each file is stripped of unnecessary lines - only one header line and data to be processed remain
+- header line is stripped of all blanks so the database table field names can be derived from this line
+- the cleansed content is written to new files in a separate directory
+```{r PrepareConversionFiles}
 library("stringr")
 
-#General parameters defining type of data sets and respectively their location - Check for each run and change accordingly
-#-------------------------------------------------------------------------------------------------------------------------
+#General parameters defining type of data sets and respectively their location - To be changed for each run accordingly
+#______________________________________________________________________________________________________________________
 #path for csv files to be processed, i.e.: "/home/oracle/Desktop/MSDS692/rws/datasets/input/before_change/Desktop/"
-sInputPath      <- "/home/oracle/Desktop/MSDS692/rws/datasets/input/all_data/"
+sInputPath      <- "/home/oracle/Desktop/MSDS692/rws/datasets/input/Conversions/all_data/###"
 #path for processed csv files, i.e.: "/home/oracle/Desktop/MSDS692/rws/datasets/output/before_change/Desktop/"
-sOutputPath     <- "/home/oracle/Desktop/MSDS692/rws/datasets/output/all_data/"
+sOutputPath     <- "/home/oracle/Desktop/MSDS692/rws/datasets/output/all_data/###"
 #abbreviation of the data set block (see intro above), i.e.: "DDBC_"
-sBlock          <- "ADET_"
+sBlock          <- "ADET_###"
 
 #Reading file names
 files <- list.files( sInputPath )
@@ -54,7 +84,7 @@ for( sFileName in files )
      sBailOutLine <- grep( ",,", linn ) #to identify the row, where reading stops => ,,"£ 
      for( iLine in 1:length( linn ) ) #looping through the lines per file
         { 
-          if( (iLoop > 5) & (iLoop < sBailOutLine - 1) ) #start processing after header and stop before footer
+          if( (iLoop > 5) & (iLoop < sBailOutLine - 1) ) #start after lines containg export metadata and stop before footer
           {
             if( iLoop == 6 ) #this is the header line, containing field names, which need to be stripped of blanks
             {
@@ -67,7 +97,8 @@ for( sFileName in files )
             else
             {
               #replace all quotation marks to make string replacement easier
-              temp <- str_replace_all( linn[iLine], pattern = '"', replacement = '#')
+              #temp <- str_replace_all( linn[iLine], pattern = '"', replacement = '#')
+              temp <- gsub( "\"", "##", linn[iLine] )
               #split line in 3 parts to isolate problematic number in the middle, containing double quotation marks and comma
               tempsplit <- str_split_fixed(temp, "##", 3)
               sBeginning <- gsub( "[£#]", "", tempsplit[1,1] ) #clear the first part of currency sign and hash
@@ -80,36 +111,38 @@ for( sFileName in files )
         iLoop <- iLoop + 1 #incrementing loop counter
       }
       close( conn ) #close file connector
-   }
+}
 ```
+The above output lists the files processed in step 1 of the data preparation. It represents one set of data processed, like for instance from the Responsive shop ("ADET"), as defined in the parameters at the beginning of the Chunk.
 
-Data Preparation step 2 - Generating create statements for External Tables based on new input files
----------------------------------------------------------------------------------------------------
-1) Form the DB object name based on the file name
-2) Eliminate any special character from header line, so the content can be used as column names for the tables
-3) Build the Create Table statement
-4) Write all Create Tables statements to one script file that can be used on SQL command line
-```{r GenerateDDLScripts}
+Step 2 - Generating CREATE TABLE statements for External Tables based on processed download files
+-------------------------------------------------------------------------------------------------
+Summary:
+- Form the DB object name based on the file name
+- Eliminate any special characters from header line, so the content can be used as column names for the tables
+- Build the Create Table statement
+- Write all Create Tables statements to a SQL script file
+```{r GenerateConversionDDLScripts}
 library("stringr")
 library("stringi")
 
-#General parameters defining type of data sets and respectively their location - Check for each run and change accordingly
-#-------------------------------------------------------------------------------------------------------------------------
+#General parameters defining type of data sets and respectively their location - To be changed for each run accordingly
+#______________________________________________________________________________________________________________________
 #path for the processed csv files from step 1, i.e.: "/home/oracle/Desktop/MSDS692/rws/datasets/output/before_change_Desktop/"
-sInputPath     <- "/home/oracle/Desktop/MSDS692/rws/datasets/output/all_data/"
+sInputPath     <- "/home/oracle/Desktop/MSDS692/rws/datasets/output/all_data/###"
 #path for the SQL file containing the DDL statements, i.e.: "/home/oracle/Desktop/MSDS692/rws/SQL/output/"
-sOutputPath    <- "/home/oracle/Desktop/MSDS692/rws/SQL/output/"
+sOutputPath    <- "/home/oracle/Desktop/MSDS692/rws/SQL/output/###"
 #database path for data files (processed csv files) of External Tables, i.e.: "rws_out_ddbc"
 sDBDirSource   <- "rws_out_adet"
 #database path for error / log / discard files created by external table reads, i.e.: "rws_out_eld"
 sDBDirTarget   <- "rws_out_eld"
 #prefix for the External Tables, according to the abbreviation of the data set block (see intro above), i.e.: "DDBC_"
-sTablePrefix   <- "ADET"
+sTablePrefix   <- "ADET###"
 
 #Reading file names
 files <- list.files( sInputPath )
 
-#file containing DDL statements for creating External Tables, i.e.: "CreateDDBC.sql"
+#file containing DDL statements for creating External Tables, i.e.: "CreateADET.sql"
 sOutFile <- paste( sOutputPath, "Create", sTablePrefix, ".sql", sep = "" )
 
 temp <- files
@@ -118,7 +151,7 @@ temp <- files
 for( sFileName in files )
 {
      #reading file to extract all lines and to prepare renaming of secondary dimension by adding sd_ prefix
-     #-----------------------------------------------------------------------------------------------------
+     #_____________________________________________________________________________________________________
      ilength <- str_length( sFileName )
      fileName <- paste( sInputPath, sFileName, sep = "" ) #adding path to file name
      fConnInFiles <- file( fileName, open = "r" ) #open file connector
@@ -136,7 +169,7 @@ for( sFileName in files )
      sFilePrefix <- gsub( ".csv", "", sFileName )
 
      #Making column names in header line compliant with table column/field name for the database
-     #------------------------------------------------------------------------------------------
+     #__________________________________________________________________________________________
      #stripping group name of secondary dimension to avoid DB object names > 30 characterss
      sObjectTmpName <- str_split_fixed( sFilePrefix, " ", 2 ) #isolating second part of dimension name
      #replacing blanks and parantheses with underscores
@@ -153,7 +186,7 @@ for( sFileName in files )
                          )
       
      #handling multiple files - since downloads in GA are limited to 5000 rows, the following brings them together logically
-     #----------------------------------------------------------------------------------------------------------------------
+     #______________________________________________________________________________________________________________________
      #getting the vector index of the file names that correspond to the current one for multiple download file handling
      iaFiles <- grep( gsub("[0123456789]", "", sFileName), gsub("[0123456789]", "", files) )
      print( paste( "Processing File:", sFileName ) )
@@ -281,25 +314,12 @@ for( sFileName in files )
           )
      }
 }
-
 ```
+The above output lists the files processed in step 2 of the data preparation. It represents one set of data processed, like for instance from the Responsive shop ("ADET"), as defined in the parameters at the beginning of the Chunk.
 
-Determine sample size needed for a statistically significant ANOVA test:
-```{r}
-library(pwr)
-
-#the following calculates the number of sample records needed, given a target P value of 0.05
-#meaning of the variables:
-# k         = number of groups
-# n         = common number of samples in each group (assuming groups of equal size)
-# f         = expected effect on size (0.1 for small, 0.25 for medium, .4 for large)
-# sig.level = level of significance (typically 5%)
-# power     = power of test (typically larger than 90%)
-pwr.anova.test(k = 4, n = , f = 0.1, sig.level = 0.05, power = 0.9)
-```
-As shown above, at least 355 records ("n") are required in each group for statistically significant ANOVA test.
-
-Read tables and analyze statistical significance of data set
+Step 3 - Establish database connection for all data retrieval
+-------------------------------------------------------------
+Establish database connection for all data based operations and R functions to follow
 ```{r CreateDBConnection}
 #install.packages("ROracle") #native Oracle Call Interface access to Oracle RDBMS
 library( ROracle )
@@ -312,159 +332,815 @@ connect.string <- paste(
  "(ADDRESS=(PROTOCOL=tcp) (HOST=", host, ") (PORT=", port, "))",
  "(CONNECT_DATA=(SID=", sid, ")))", sep = "") #connection details: entire connect string with
 con <- dbConnect( drv, username = "rws", password = "welcome1", dbname=connect.string) #connection handler
-
 ```
+The connection object created above can not be used in any SELECT statement in any Chunk following.
 
-For the Desktop shop, 3 days right before the change of the shop held 503 transactions (2 days would not have exceeded 355 records)
+Data Exploration - Revenue Forecast
+===================================
+Checking when time series starts as well as for potentially missing months
+--------------------------------------------------------------------------
+If any time period was missing, the time series would be "broken", which may cause problems when calculating seasonality, etc.
 ```{sql connection=con}
-SELECT Count( 'Transaction' )       AS Number_of_Transactions 
-     , Count( Distinct( sd_date ) ) AS Days
-  FROM v_ddbc
- WHERE sd_date < '20170508'
-   AND sd_date > '20170504'
+SELECT DISTINCT( substr( sd_date, 1, 6 ) ) 
+  FROM v_adet 
+ ORDER BY substr( sd_date, 1, 6 )
 ```
+The results above show, that the first month of data is February 2013. Every month following until June 2017 is filled with data (otherwise certain months would be missing, as the list displays only months in which transactions occured). In short, then, the data supports time series analyses on the grounds that there are no missing months. 
 
-For the Mobile shop, 9 days held 376 transaction (8 days would not have exceeded 355 records)
-```{sql connection=con}
-SELECT Count( 'Transaction' )       AS Number_of_Transactions 
-     , Count( Distinct( sd_date ) ) AS Days
-  FROM v_mdbc
- WHERE sd_date < '20170508'
-   AND sd_date > '20170429'
-```
-
-For the fusion shop 18 days held 381 transactions (17 days would not have exceeded 355 records)
-```{sql connection=con}
-SELECT Count( 'Transaction' )       AS Number_of_Transactions 
-     , Count( Distinct( sd_date ) ) AS Days
-  FROM v_adet
- WHERE sd_date > '20170508'
-   AND sd_date < '20170527'
-```
-The above results define the required data sets for ANOVA
-
-The following datasets are based on the filtering shown above, to allow for groups of similar size
-```{r ReadingDataSets}
-#build a training set for transaction with mobile shop before change
-ddbc <- dbSendQuery( con
-                   , "SELECT transaction_id
-                           , sd_date
-                           , revenue
-                      FROM v_ddbc
-                     WHERE sd_date < '20170508'
-                       AND sd_date > '20170504'"
-                   )
-#load the records read to a data frame
-desktopsample <- fetch( ddbc )
-dim( desktopsample )
-print( desktopsample[,3] )
-
-#build a training set for transactions with desktop shop before change
-mdbc <- dbSendQuery( con
-                   , "SELECT transaction_id
-                           , sd_date
-                           , revenue
-                      FROM v_mdbc
-                     WHERE sd_date < '20170508'
-                       AND sd_date > '20170429'"
-                   )
-#load the records read to a data frame
-mobilesample <- fetch( mdbc )
-dim( mobilesample )
-print( mobilesample[,3] )
-
-#build a training set for transactions with responsive shop after change
-adet <- dbSendQuery( con
-                   , "SELECT transaction_id
-                           , sd_date
-                           , revenue
-                      FROM v_adet
-                     WHERE sd_date > '20170508'
-                       AND sd_date < '20170527'"
-                   )
-#load the records read to a data frame
-responsivesample <- fetch( adet )
-dim( responsivesample )
-print( responsivesample[,3] )
-
-#build a training set for all the above transactions
-mdr  <- dbSendQuery( con
-                   , "SELECT 'Desktop'
-                           , transaction_id
-                           , sd_date
-                           , revenue
-                        FROM v_ddbc
-                       WHERE sd_date < '20170508'
-                         AND sd_date > '20170504'
-                      UNION                       
-                      SELECT 'Mobile'
-                           , transaction_id
-                           , sd_date
-                           , revenue
-                        FROM v_mdbc
-                       WHERE sd_date < '20170508'
-                         AND sd_date > '20170429'
-                      UNION
-                      SELECT 'Responsive'
-                           , transaction_id
-                           , sd_date
-                           , revenue
+Analytics - Revenue Forecast
+============================
+Step 1 - fetching data for time series analytics over all months
+----------------------------------------------------------------
+The following Chunk sums up each month's revenue from the first month to the last one downloaded.
+```{r FetchingDataForTimeSeriesAnalytics}
+#every month except June 2017 is fetched because June data is incomplete and would potentially distort the forecast
+adts <- dbSendQuery( con
+                   , "SELECT Sum( revenue )
                         FROM v_adet
-                       WHERE sd_date > '20170508'
-                         AND sd_date < '20170527'"
+                       WHERE sd_date < '20170601'
+                       GROUP BY substr( sd_date, 1, 6 )
+                       ORDER BY substr( sd_date, 1, 6 )"
+                   )
+revbymonth <- fetch( adts )
+head( revbymonth )
+```
+Months February 2013 to July 2017
+
+Step 2 - turning fetched data into an R time series for all months
+------------------------------------------------------------------
+The "ts" function (https://stat.ethz.ch/R-manual/R-devel/library/stats/html/ts.html) stores the monthly revenue totals in a time series object. The starting point of the time series is the initial month identified by the SELECT statement in step 1 (February 2013). As the time series object will be covering months, the frequency is defined to be "12". The time series object is needed later on for the HoltWinters forecast function.
+```{r CreatingTimeSeriesAllMonths}
+revtimeseries <- ts( revbymonth, frequency=12, start=c(2013,2) ) #build time series object
+revtimeseries #display time series
+```
+Revenues in time series format.
+
+Step 3 - plotting the time series
+---------------------------------
+```{r PlotTimeSeriesAllMonths}
+plot.ts( revtimeseries
+       , ylab = "Revenues"
+       , main = "Actual Revenues up to June 2017"
+       )
+```
+Monthly revenues for all months downloaded. The spikes around the end of each year indicate seasonal data. Therefore, forecasting needs to account for seasonality.
+
+Step 4 - decomposing seasonal data
+----------------------------------
+Due to the seasonality derived from the plot above, the data needs to be decomposed into 3 parts - the trend component, the seasonal component and the irregular component. Decomposition aids assessing each individual component and its respective influence on forecasting. (http://a-little-book-of-r-for-time-series.readthedocs.io/en/latest/src/timeseries.html).
+```{r DecomposeTimeSeriesAllMonths}
+revtimeseriescomponents <- decompose( revtimeseries ) #decompose time series
+plot( revtimeseriescomponents )
+```
+Time series separation in: original component ("observed"), trend component ("trend"), seasonal component ("seasonal") and estimated irregular component ("random").
+
+Step 5 - seasonal adjustment
+----------------------------
+To show the effect of seasonal influence more clearly, the seasonal component (which is part of the decomposed time series object) is subtracted from the original time series as follows:
+```{r RemoveSeasonalInfluenceAllMonths}
+revtimeseriesseasonallyadjusted <- revtimeseries - revtimeseriescomponents$seasonal #subtract seasonality
+plot( revtimeseriesseasonallyadjusted
+    , main = "Seasonally Adjusted Actual Revenues up to June 2017"
+    )
+```
+Seasonally adjusted revenues from February 2013 to June 2017
+
+Step 6 - HoltWinters forecasting
+--------------------------------
+The forecast is derived with the HoltWinters funtion:
+```{r TimeSeriesForecastAllMonths}
+revtimeseriesforecasts <- HoltWinters( revtimeseries ) #applying forecast function on revenue time series
+revtimeseriesforecasts #displaying result of forecast
+```
+The above output shows, among other details, the alpha (0.248331), beta (0.257106) and gamma (0.8504031) values. The relatively low alpha value indicates that the current estimate (current point in time) is based on recent observations as well as some historic observations. The relatively low beta value indicates that the estimate of the slope of the trend is updated / adjusted slightly over the time series. Finally, the relatively high gamma value indicates that the estimate of the seasonal components currently (current point in time) is based upon very recent observations (potentially referring to the effect of the change to Responsive design).
+
+Step 7 - plotting forecast on historic data
+-------------------------------------------
+The forecast derived sofar is a calculation for past data. In other words, no prediction has taken place so far. Calculating a forecast on historic revenues helps assessing the accuracy / applicability of the approach:
+```{r PlotHistoryForecastAllMonths}
+plot( revtimeseriesforecasts
+    , main = "Actual Revenues and (historic) Forecasted Revenues"
+    )
+```
+Historic revenue figures (black line) together with the forecast of months in the past (red line). Diagram validates the approach taken so far is sound, as actuals and forecast "follow a close pattern".
+
+Step 8 - forecasting (predicting) revenues
+------------------------------------------
+To forecast revenues for time periods beyond the actuals in the underlying data set (i.e. predicting), the forecast function of the HoltWinters method is used. The forecast is derived for 6 months:
+```{r Forecast6MonthsOnAllMonths}
+library(forecast)
+revtimeseriesforecastspredict <- forecast.HoltWinters( revtimeseriesforecasts, h=6 )
+plot.forecast( revtimeseriesforecastspredict
+             , main = "Predicted Forecast June to November 2017"
+             )
+```
+The blue line in the above plot shows the predicted revenue. The shaded areas in dark grey and light grey represent the 80% and 95% prediction intervals, respectively. In other words, 80% of all future values are predicted to fall in the dark grey area and 95% are predicted not to be outside the light grey area (https://en.wikipedia.org/wiki/Prediction_interval).
+
+The above forecast can be checked against forecasts in the past for instance by controllers to assess its validity and challenge accuracy. Depending on the result, it can be used as a baseline for comparing with current forecasts or even as a guideline for deriving coming forecasts.
+
+Step 9 - forecast based on all revenues before the change to Responsive design
+------------------------------------------------------------------------------
+To challenge the results of the forecasting above and especially the hypothesis, that the Responsive design affects revenues, the forecast is repeated with all data, except the part covering revenues after the change of the web shop. In case Responsive design did affect revenues, revenue predictions should differ. The following Chunk executes all prior steps but rather than running each steps in a dedicated Chunk as above, steps are now combined into Chunk. To accommodate for the 25 days of Reponsive web shop revenues included in the above forecast but not in this one, this forecast adds one additional month to the prediction, to arrive at the same target month (November 2017).
+```{r ForeCastBasedOnAll25DaysBeforeChange}
+library(forecast)
+library(zoo)
+
+#fetching 25 days before change of web shop to Responsive design
+adbc <- dbSendQuery( con
+                   , "SELECT Sum( revenue )
+                        FROM v_adet
+                       WHERE sd_date < '20170508'
+                       GROUP BY substr( sd_date, 1, 6 )
+                       ORDER BY substr( sd_date, 1, 6 )"
+                   )
+revbymonthbc <- fetch( adbc )
+head( revbymonthbc )
+
+#turning all fetched data before change into an R time series 
+revtimeseriesbc <- ts( revbymonthbc, frequency=12, start=c(2013,2) ) #build time series object
+revtimeseriesbc
+
+#plotting the time series
+plot.ts( revtimeseriesbc
+       , ylab = "Revenues"
+       , main = "Actual Revenues up to May 2017"
+       )
+
+#perform HoltWinters forecasting
+revtimeseriesforecastsbc <- HoltWinters( revtimeseriesbc )
+revtimeseriesforecastsbc
+
+#plotting historic forecast
+plot( revtimeseriesforecastsbc
+    , main = "Actual Revenues and (Historic) Forecasted Revenues"
+    )
+
+#predicting 7 months (to be par with the prior forecast) and plot
+revtimeseriesforecastspredictbc <- forecast.HoltWinters( revtimeseriesforecastsbc, h=7 )
+plot.forecast( revtimeseriesforecastspredictbc
+             , main = "Predicted Revenues May to November 2017"
+             )
+```
+Step 10 - interpretation of both long term predictions
+------------------------------------------------------
+The comparison of the predicted revenues including June's actual figures in plot 8 (after 25 days of Responsive design being live) with the prediction ending with May's actuals in plot 9 (i.e. before the Responsive web shop went live) reveal differing revenue developments. While plot in step 8 shows a more continuous and relatively steady incline, the plot in step 9 shows a rather sharp incline in October, starting from a lower base. Ultimately, both forecasts arrive at the same forecast level in November but with a different "growth pattern". To further analyze the difference in the initial months after the change of the web shop, a short term forecast follows
+
+Step 11 - short term forecast based on 25 days before the change to Responsive design
+-------------------------------------------------------------------------------------
+To validate the existence of a potential short term effect of the change of the web shop design on revenues, this Chunk predicts revenues for 25 days following the change date (May 9th to June 2nd), based on the 25 days preceding the change (April 13th to May 7th):
+```{r ForeCastBasedOn25DaysBeforeChange}
+library(forecast)
+library(zoo)
+
+#fetching 25 days before change of web shop to Responsive design
+bcts <- dbSendQuery( con
+                   , "SELECT Sum( revenue )
+                        FROM v_adet
+                       WHERE sd_date >= '20170413'
+                         AND sd_date <= '20170507'
+                       GROUP BY sd_date
+                       ORDER BY sd_date"
+                   )
+revbcbymonth <- fetch( bcts )
+head( revbcbymonth )
+
+#defining start data and end date for the time series
+indbc <- seq( as.Date("2017-04-13"), as.Date("2017-05-07"), by = "day" )
+
+#the zoo function makes daily time series easier to handle since it eliminates the need to estimate the number of each day within the year
+zoobc <- zoo( revbcbymonth, indbc)
+
+#plotting the time series
+plot.ts( zoobc
+       , xaxt = "n"
+       , xlab = "25 days revenues"
+       , ylab = "Revenues Before Change to Responsive Design"
+       )
+
+#forecasting historic data
+revbctimeseriesforecasts <- HoltWinters( zoobc, gamma=FALSE )
+revbctimeseriesforecasts
+
+#plotting historic forecast
+plot( revbctimeseriesforecasts
+    , xlab = "Actuals and Forecast 25 days Before Change to Responsive Design"      
+    , xaxt = "n"
+    )
+
+#predicting 25 days
+revbctimeseriesforecastspredict <- forecast.HoltWinters(revbctimeseriesforecasts, h=25)
+
+#plotting prediction
+plot.forecast( revbctimeseriesforecastspredict
+             , xaxt = "n"
+             , xlab = "25 days desktop/mobile shops actuals - 25 days forecast"
+             , main = "Predicted Revenues - Actuals: 13 Apr to 7 May, Forecast: 9 May to 2 Jun"
+             )
+```
+Results of short term forecast based on 25 days before the change to Responsive design
+
+Step 12 - short term forecast based on 25 days after the change to Responsive design
+------------------------------------------------------------------------------------
+As opposed to the step above, in this step the first 25 days of Responsive web shop revenues form the the basis for a short term forecast:
+```{r ForeCastBasedOn25DaysAfterChange}
+library(forecast)
+library(zoo)
+
+#fetching 25 days after change of web shop to Responsive design
+acts <- dbSendQuery( con
+                   , "SELECT Sum( revenue )
+                        FROM v_adet
+                       WHERE sd_date >= '20170509'
+                         AND sd_date <= '20170602'
+                       GROUP BY sd_date
+                       ORDER BY sd_date"
+                   )
+revacbymonth <- fetch( acts )
+head( revacbymonth )
+
+#defining start data and end date for the time series
+indac <- seq( as.Date("2017-05-09"), as.Date("2017-06-02"), by = "day" )
+
+#the zoo function makes daily time series easier to handle since it eliminates the need to estimate the number of each day within the year
+zooac <- zoo( revacbymonth, indac)
+
+#plotting the time series
+plot.ts( zooac
+       , xaxt = "n"
+       , ylab = "Revenues"
+       )
+
+#forecasting historic data
+revactimeseriesforecasts <- HoltWinters( zooac, gamma=FALSE )
+revactimeseriesforecasts
+
+#plotting historic forecast
+plot( revactimeseriesforecasts
+    , xaxt = "n"
+    )
+
+#predicting 25 days
+revactimeseriesforecastspredict <- forecast.HoltWinters(revactimeseriesforecasts, h=25)
+
+#plotting prediction
+plot.forecast( revactimeseriesforecastspredict
+             , xaxt = "n"
+             , xlab = "25 days Responsive web shop actuals - 25 days forecast"
+             , main = "Predicted Revenues - Actuals: 9 May to 2 Jun, Forecast: 3 to 27 Jun"
+             )
+```
+Results of short term forecast based on 25 days after the change to Responsive design
+
+Forecast conclusion
+-------------------
+The predicted increase in revenues reflects seasonal impact as well as recent events, such as the change of the web shop to a Responsive design. Considering the overall development of revenues, which have reached lows in the middle of 2015 and 2016, revenues seem to recover slightly (see plot in step 4), in general.
+
+The level of increase in the plot in step 8 appears much steeper compared to the revenue trend indicated in the plot of step 3. Considering the final month of the prediction (November), in spite of a different "growth pattern", predicted revenues arrive at the same level. This indicates, that impact may be more short term, which, at least in part, could be attributable to the seasonal impact observed around the turn of the years (potential Christmas effects reflecting positive on revenues in November).
+
+For verification, the short term forecast depicted in the plots in step 11 (before the change to Responsive design) and step 12 (after the change to Responsive design) show a favorable development after the change. Even though both short term forecasts depict a decline in revenues, the revenues forecasted on the basis of transactions made after the change to Responsive design (plot in step 12) decrease only "marginally". This also, in short, speaks in favor of a positive short term effect of Responsive design.
+
+In essence, the results above indicate a correlation between the change of web shop and predicted development of revenues (short term). For further confirmation on correlation, another set of analytics targets the impact on "the audience".
+
+
+I - Data Preparation - Audience Data
+====================================
+Step 1 - Preparing Google Analytics export files
+------------------------------------------------
+Summary:
+- each file name is shortened to its containing day and audience group (new/returning)
+- the content of each file is stripped of the header lines
+- the cleansed content is written to new files in a separate directory
+```{r PrepareAudienceFiles}
+library("stringr")
+
+#General parameters defining type of data sets and respectively their location - To be changed for each run accordingly
+#______________________________________________________________________________________________________________________
+#path for csv files to be processed, i.e.: "/home/oracle/Desktop/MSDS692/rws/datasets/input/before_change/Desktop/"
+sInputPath      <- "/home/oracle/Desktop/MSDS692/rws/datasets/input/Audience/"
+#path for processed csv files, i.e.: "/home/oracle/Desktop/MSDS692/rws/datasets/output/before_change/Desktop/"
+sOutputPath     <- "/home/oracle/Desktop/MSDS692/rws/datasets/output/Audience/"
+#abbreviation of the data set block (see intro above), i.e.: "AUDIENCE"
+sBlock          <- "AUDIENCE"
+
+#Reading file names
+files <- list.files( sInputPath )
+
+#the marker is part of all file names and delineates the first part of the file name from the secondary dimension name
+sFileNameMarker <- " # "
+
+#Looping through the files
+for( sFileName in files )
+   {
+     print( paste( "Processing File:", sFileName ) ) #show processing status on file level
+     ilength <- str_length( sFileName ) #length of file name, used for substr later on
+     #finding the beginning of the string for the new file name in old name
+     sn <- str_locate( sFileName, sFileNameMarker ) #i.e.: 57 59
+     #extracting date from file name, i.e.: 20170509
+     sDate <- substr( sFileName, sn[,1] - 8, sn[,1] - 1 )
+     #extracting user group from file name, i.e.: returning_users
+     sUserGroup <- gsub( " ", "_", substr( sFileName, sn[,2] + 1, ilength - 4 ) )
+     #building the name of the file in which to copy the valid lines
+     #i.e.: AUDIENCE_20170509_returning users.csv
+     sNewFilename <- paste( sOutputPath, sBlock, "_", sDate, "_", substr( sFileName, sn[,2] + 1, ilength ), sep = "" )
+     #i.e.: /home/oracle/Desktop/MSDS692/rws/datasets/input/Audience/Analytics MFM - All Data User Explorer 20170509-20170509 # returning users.csv
+     sFilePathName <- paste( sInputPath, sFileName, sep = "" ) #adding path to file name
+     conn <- file( sFilePathName, open = "r" ) #open file connector
+     linn <- readLines( conn ) #read line by line - contains all lines in file read
+     iLoop <- 0 #loop counter for the exit condition
+     for( iLine in 1:length( linn ) ) #looping through the lines per file
+        { 
+          if( (iLoop > 6) ) #start after header
+          {
+            #replace all quotation marks to make string replacement easier
+            #i.e.: xxxxxxxxxx.yyyyyyyyyy,1,00:06:11,0.00%,$0.00,0,100.00%
+            sCurrentLine <- gsub( "\"", "##", linn[iLine] )
+            #split line in 3 parts to isolate problematic number in the middle, containing double quotation marks and comma
+            #i.e.: "xxxxxxxxxx.yyyyyyyyyy,1,00:06:11,0.00%,$0.00,0,100.00%" ""   ""  
+            sLineSplit <- str_split_fixed(sCurrentLine, "##", 3)
+            sBeginning <- gsub( "[£#%<]", "", sLineSplit[1,1] ) #clear the first part of currency sign and hash
+            sEnd <- gsub( "[£#%<]", "", sLineSplit[1,3] ) #clear the last part of currency sign and hash
+            sMiddle <- gsub( "[£,%<]", "", sLineSplit[1,2]) #clear the middle part of currency sign and comma
+            sEnd <- paste( sEnd, ",", sDate, ",", sUserGroup, sep = "" ) #adding date to every data line, i.e.: ,20170509,returning_users
+            sNewLine <- paste( sBeginning, sMiddle, sEnd, sep = "" ) #piece all parts together in one line
+            write( sNewLine, file = sNewFilename, append = TRUE ) #appending each line to new file
+          }
+        iLoop <- iLoop + 1 #incrementing loop counter
+      }
+      close( conn ) #close file connector
+}
+```
+The above output lists the files processed in step 1 of the data preparation.
+
+Step 2 - Generating CREATE TABLE statements for External Tables based on processed download files
+-------------------------------------------------------------------------------------------------
+- Add all downloaded files to the list of files that will be the source of the External Table
+- Build the Create Table statement
+- Write the Create Table statement to a SQL script
+```{r GenerateAudienceDDLScripts}
+library("stringr")
+library("stringi")
+
+#General parameters defining type of data sets and respectively their location - To be changed for each run accordingly
+#______________________________________________________________________________________________________________________
+#path for the processed csv files from step 1, i.e.: "/home/oracle/Desktop/MSDS692/rws/datasets/output/before_change_Desktop/"
+sInputPath     <- "/home/oracle/Desktop/MSDS692/rws/datasets/output/Audience/"
+#path for the SQL file containing the DDL statements, i.e.: "/home/oracle/Desktop/MSDS692/rws/SQL/output/"
+sOutputPath    <- "/home/oracle/Desktop/MSDS692/rws/SQL/output/"
+#database path for data files (processed csv files) of External Tables, i.e.: "rws_out_ddbc"
+sDBDirSource   <- "rws_out_audience"
+#database path for error / log / discard files created by external table reads, i.e.: "rws_out_eld"
+sDBDirTarget   <- "rws_out_eld"
+#prefix for the External Tables, according to the abbreviation of the data set block (see intro above), i.e.: "DDBC_"
+sTablePrefix   <- "AUDIENCE"
+
+#Reading file names
+files <- list.files( sInputPath )
+
+#file containing DDL statements for creating External Tables, i.e.: "CreateDDBC.sql"
+sOutFile <- paste( sOutputPath, "Create", sTablePrefix, ".sql", sep = "" )
+sObjectName <- sTablePrefix
+
+#Looping through the files
+sSourceFiles <- NULL
+i <- 1
+for( sFileName in files )
+{
+  #adding name of each input file to list, which will specify the data source for the Ecternal Table
+  #_________________________________________________________________________________________________
+  if( i == 1 ) #i.e. first file in list has no leading comma
+  {
+    sSourceFiles <- paste( "'"
+                         , files[i]
+                         , "'"
+                         , sep = ""
+                         )
+  }
+  else #i.e. every file name added to the list is preceded by a comma
+  {
+    sSourceFiles <- paste( sSourceFiles
+                         , ", '"
+                         , files[i]
+                         , "'"
+                         , sep = ""
+                         )
+  }
+  i <- i + 1
+}
+
+#log / bad / discard file names
+sLogFile  <- paste( sObjectName, ".log",  sep = "" )
+sBadFile  <- paste( sObjectName, ".bad",  sep = "" )
+sDiscFile <- paste( sObjectName, ".disc", sep = "" )
+#Lines to be written to DML file
+sLine01 <- paste( "DROP TABLE ", sObjectName, ";", sep = "" )
+sLine02 <- paste( "CREATE TABLE", sObjectName )
+sLine03 <-        "( client_id                     VARCHAR2(50)" 
+sLine04 <-        ", sd_sessions                   NUMBER"
+sLine05 <-        ", avg_session_duration          VARCHAR(8)"
+sLine06 <-        ", bounce_rate                   NUMBER"
+sLine07 <-        ", revenue                       NUMBER"
+sLine08 <-        ", transactions                  NUMBER"
+sLine09 <-        ", goal_conversion_rate          NUMBER"
+sLine10 <-        ", sd_date                       VARCHAR2(8)"
+sLine11 <-        ", user_group                    VARCHAR2(15)"
+sLine12 <-        ")"
+sLine13 <-        "ORGANIZATION EXTERNAL"
+sLine14 <-        "( TYPE ORACLE_LOADER"
+sLine15 <- paste( "  DEFAULT DIRECTORY", sDBDirSource )
+sLine16 <-        "  ACCESS PARAMETERS( RECORDS DELIMITED BY NEWLINE"
+sLine17 <- paste( "                     LOGFILE     ", sDBDirTarget, ": '", sObjectName, ".log'", sep = "" )
+sLine18 <- paste( "                     BADFILE     ", sDBDirTarget, ": '", sObjectName, ".bad'", sep = "" )
+sLine19 <- paste( "                     DISCARDFILE ", sDBDirTarget, ": '", sObjectName, ".disc'", sep = "" )
+sLine20 <-        "                     FIELDS TERMINATED BY ','"
+sLine21 <-        "                     MISSING FIELD VALUES ARE NULL"
+sLine22 <-        "                   )"
+sLine23 <-        "  LOCATION"
+sLine24 <-        "  ("
+sLine25 <- paste( "    ", sDBDirSource, ": ", sSourceFiles, sep = "" )
+sLine26 <-        "  )"
+sLine27 <-        ")"
+sLine28 <-        "REJECT LIMIT UNLIMITED"
+sLine29 <-        ";"
+
+#writing above lines to DML file
+cat(       sLine01
+  , "\n", sLine02
+  , "\n", sLine03
+  , "\n", sLine04
+  , "\n", sLine05
+  , "\n", sLine06
+  , "\n", sLine07
+  , "\n", sLine08
+  , "\n", sLine09
+  , "\n", sLine10
+  , "\n", sLine11
+  , "\n", sLine12
+  , "\n", sLine13
+  , "\n", sLine14
+  , "\n", sLine15
+  , "\n", sLine16
+  , "\n", sLine17
+  , "\n", sLine18
+  , "\n", sLine19
+  , "\n", sLine20
+  , "\n", sLine21
+  , "\n", sLine22
+  , "\n", sLine23
+  , "\n", sLine24
+  , "\n", sLine25
+  , "\n", sLine26
+  , "\n", sLine27
+  , "\n", sLine28
+  , "\n", sLine29, "\n"
+  , "\n"
+  , file = sOutFile
+  , append = TRUE
+  )
+```
+The above list shows the input files processed into the CREATE TABLE statement
+
+II - Experimental Design and Hypothesis Testing - Audience Data
+===============================================================
+Step 1 - Determine sample size needed for a statistically significant ANOVA test
+--------------------------------------------------------------------------------
+To prepare initial analyses, the downloaded data sets need to be checked to make sure they are of statistical significance before performing an ANOVA test. While the ANOVA test in principle checks to see of there is a meaningful difference in the data sets to compare (Desktop / Mobile shops compared to Responsive shop), thereby justifying further analyses, the Power Analysis at this stage calculates how much data is needed for the ANOVA test.
+
+Summary:
+Part a): retrieving data sets from database to compare revenues before and after change of web shop
+Part b): calculating effect size - a parameter needed in part c
+Part c): calculating the number of sample records needed using function "pwr.anova.test"
+
+Detailing part c):
+This function pwr.anova.test allows us to determine how large a sample has to be if any effect is to be found, given a definable degree of confidence (http://www.statmethods.net/stats/power.html). 
+
+Explanation of the function / parameters (part "c" in the R chunck, below):
+k         = number of groups
+          => value is "3", since mobile shop data are compared with desktop shop data and Responsive shop data
+n         = common number of samples in each group (assuming groups of equal size)
+          => left blank / to be calculated
+f         = expected effect on size (0.1 for small, 0.25 for medium, .4 for large, according to Cohen definition)
+          => effect size quantifies the size of the difference between groups (https://www.leeds.ac.uk/educol/documents/00002182.htm). 
+             An analysis of the group would be needed for an optimal f value. With respect to the impact of the responsive design on revenue, further information about the groups would be required, to include products and customers involved in the transactions. In absense of such details, the size of the difference between the groups is calculated based on the revenues observed (first part of the Power Analysis R Chunck below)
+sig.level = level of significance (typically 5%)
+power     = power of test (typically 90% or larger)
+```{r PowerAnalysisPart1}
+library(lsr)
+library(pwr)
+
+# a) retrieving datasets from database to calculate effect size
+#______________________________________________________________
+#retrieving mobile and desktop shop data before change
+bdbc <- dbSendQuery( con
+                   , "SELECT client_id --transaction_id
+                           , revenue
+                      FROM audience --v_adet
+                     WHERE sd_date   >= '20170413'
+                       AND sd_date   <= '20170507'
+                       AND user_group = 'new_users'
+                       AND rownum     < 120"
+                   )
+#load the records read to a data frame
+desktopmobile_bc <- fetch( bdbc )
+
+#retrieving responsive shop data after change
+rdac <- dbSendQuery( con
+                   , "SELECT client_id --transaction_id
+                           , revenue
+                      FROM audience --v_adet
+                     WHERE sd_date   >= '20170509'
+                       AND sd_date   <= '20170602'
+                       AND user_group = 'new_users'
+                       AND rownum     < 120"
+                   )
+#load the records read to a data frame
+responsive_ac <- fetch( rdac )
+
+# b) calculating effect size for the power test "f" parameter below
+#__________________________________________________________________
+set.seed(119) #makes the result reproducible
+x <- rnorm(desktopmobile_bc[,2])
+y <- rnorm(responsive_ac[,2])
+print("calculated effect size:")
+cohensD( x, y )
+```
+The above calculation arrives on the effect size, based on an equally sized sample of data from before and after the change of the web shop
+
+The following Power test pwr.anov.test function is used to calculate the number of sample records needed. Meaning of the parameters:
+k         -> number of groups
+n         -> number of observations per sample / to be calculated
+f         -> effect size (the standardised “diﬀerence” between treatment groups)
+sig.level -> significance level (Type I error probability, i.e. the incorrect rejection of a true null hypothesis / a "false positive")
+power     -> power of test (1 minus Type II error probability, i.e. incorrectly retaining a false null hypothesis / a "false negative")
+```{r PowerAnalysisPart2}
+# c) calculating the number of sample records needed, using above calculated effect size
+#_______________________________________________________________________________________
+pwr.anova.test(k = 2, n = , f = 0.2532056, sig.level = 0.05, power = 0.9)
+```
+As shown above, at least 83 records ("n") are required in each group for a statistically significant ANOVA test.
+
+Step 2 - Determine existing data set sizes, to establish whether there are enough records for ANOVA testing 
+-----------------------------------------------------------------------------------------------------------
+The data set downloaded for comparison covers a maximum of 25 days after the go live of the Responsive web shop (May 9 - June 2). For comparison purposes, the data set before the go-live will be kept to 25 days as well (April 13 - May 7). The 8th of May has been kept out deliberatedly to avoid a potential mix of mobile/desktop shop and responsive shop revenues.
+
+Checking how many transactions are available and total revenue for Desktop / Mobile shop data for the given time frame ("Days" refer to days with business transactions)
+```{sql connection=con}
+SELECT Count( 'Client_ID' )         AS Number_of_Clients 
+     , Sum( revenue )               AS Total_Revenue
+     , Count( Distinct( sd_date ) ) AS Days
+  FROM audience --v_ddbc
+ WHERE sd_date   >= '20170413'
+   AND sd_date   <= '20170507'
+   AND user_group = 'new_users'
+```
+Checking how many transactions are available and total revenue for Responsive shop data for the given time frame ("Days" refer to days with business transactions)
+```{sql connection=con}
+SELECT Count( 'Client_ID' )         AS Number_of_Clients
+     , Sum( revenue )               AS Total_Revenue
+     , Count( Distinct( sd_date ) ) AS Days
+  FROM audience --v_adet
+ WHERE sd_date   >= '20170509'
+   AND sd_date   <= '20170602'
+   AND user_group = 'new_users'
+```
+As shown above, Desktop + Mobile / Responsive shop records exceed the minimum of 83 records (number of clients) each for ANOVA testing, so the analysis can be continued.
+
+Step 3 - summary check if there are differences to be observed in the number of transactions and revenues
+---------------------------------------------------------------------------------------------------------
+Checking the differences between the combined Deskop / Mobile shop data and the Responsive shop data
+```{sql connection=con}
+SELECT d.transactions + m.transactions         AS transactions_before_change
+     , d.revenue + m.revenue                   AS revenue_before_change
+     , d.quantity + m.quantity                 AS quantity_before_change
+     , r.transactions                          AS transactions_after_change
+     , r.revenue                               AS revenue_after_change
+     , r.quantity                              AS quantity_after_change
+     ,    r.transactions 
+       - (d.transactions + m.transactions)     AS change_in_transactions
+     ,    r.revenue
+       - (d.revenue + m.revenue)               AS change_in_revenue
+     ,    r.quantity
+       - (d.quantity + m.quantity)             AS change_in_quantity
+     , (     r.transactions
+         - ( d.transactions + m.transactions ) 
+       ) / ( d.transactions + m.transactions )
+         * 100                                 AS percentage_change_transactions
+     , (     r.revenue
+         - ( d.revenue + m.revenue ) 
+       ) / ( d.revenue + m.revenue )
+         * 100                                 AS percentage_change_revenue
+     , (     r.quantity
+         - ( d.quantity + m.quantity ) 
+       ) / ( d.quantity + m.quantity )
+         * 100                                 AS percentage_change_quantity
+  FROM ( SELECT Count( 1 )      AS transactions
+              , Sum( revenue )  AS revenue
+              , Sum( quantity ) AS quantity
+           FROM v_ddbc 
+          WHERE sd_date >= '20170413'
+            AND sd_date <= '20170507'
+       )                                       d
+     , ( SELECT Count( 1 )      AS transactions
+              , Sum( revenue )  AS revenue 
+              , Sum( quantity ) AS quantity
+           FROM v_mdbc
+          WHERE sd_date >= '20170413'
+            AND sd_date <= '20170507'
+       )                                       m
+     , ( SELECT Count( 1 )      AS transactions
+              , Sum( revenue )  AS revenue 
+              , Sum( quantity ) AS quantity
+           FROM v_adet
+          WHERE sd_date >= '20170509'
+            AND sd_date <= '20170602'
+       )                                       r
+```
+The results above show that the number of transactions has decreased after the go live of the Responsive shop, while revenues and quantities have increased. Provided the ANOVA test leads to a rejection of the null hypothesis (i.e. there are statistically meaningful differences in the data sets), further analyses should be performed.
+
+Step 4 - Reading data sets for ANOVA testing
+--------------------------------------------
+The following datasets are based on the filtering shown above, to allow for groups of similar size
+```{r ReadingANOVADataSets}
+#retrieve a data set for all shops for ANOVA testing
+mdr  <- dbSendQuery( con
+                   , "SELECT 'Desktop/Mobile' AS shop
+                           , client_id
+                           , sd_date
+                           , revenue
+                        FROM audience
+                       WHERE sd_date   >= '20170413'
+                         AND sd_date   <= '20170507'
+                         AND user_group = 'new_users'
+                      UNION                       
+                      SELECT 'Responsive' AS shop
+                           , client_id
+                           , sd_date
+                           , revenue
+                        FROM audience
+                       WHERE sd_date   >= '20170509'
+                         AND sd_date   <= '20170602'
+                         AND user_group = 'new_users'"            
                    )
 #load the records read to a data frame
 allsample <- fetch( mdr )
-dim( allsample )
-print( allsample[,3] )
+allsample
 ```
+Samples data for ANOVA test.
 
-Plotting to check visually if revenue are of equal nature between Mobile / Desktop / Responsive shops
-```{r}
+Step 5 - Plotting ANOVA sample data set
+---------------------------------------
+Plotting to check visually if revenues are of equal nature between Mobile / Desktop / Responsive shops
+```{r BoxPlotANOVADataSet}
 boxplot( allsample[,4]~allsample[,1], data=allsample, main=toupper("Revenues by Shop"), xlab="Shop Type", ylab="Revenue", col="skyblue" )
 ```
-The above boxplot shows that the data is rather different for each shop. The midline (median) of Responsive shop revenues is higher compared to Desktop and Mobile shops. The same can be said for the upper and lower limits of the Resonsive box (the third and first quartile / 75th and 25th percentile), which are much further away from the median compared to the Desktop and Mobile boxes. The same can be said of the "circles" (outliers), which are much further away from the median, as compared to the ones of the Mobile and Desktop boxes.
+The above boxplot graphically displays statistical keyfigures of the three data sets (http://www.physics.csbsju.edu/stats/box2.html). The midline (median revenue) of Responsive shop revenues is close to the one of the Desktop / Mobile shops, as are the upper and lower limits of the Resonsive box (the third and first quartile / 75th and 25th percentile of the revenues), which are not dicernable from the median due to their proximity. The "circles" (outlier revenues) do show different patterns, though.
 
-Testing for homogeneity of variance (i.e.: Homoscedasticity / performing Bartlet's test)
-```{r}
-bartlett.test( allsample[,4]~allsample[,1], allsample )
+In essence, then, Responsive shop revenues do follow the same "pattern" as to the other two shops for the 50 days observed. The box plot is only intended to indicate the function to be used in the following experimental testing.
+
+Step 6 - Testing for homoscedasticity
+-------------------------------------
+The following test is intended to identify the "nature" of the data sets. The closer their content is (homoscedasticity), the higher the indication to use the aov function for ANOVA testing. The test is also known as the Bartlett's test (http://www.itl.nist.gov/div898/handbook/eda/section3/eda357.htm).
+```{r HomogeneityOfVariance}
+bartlett.test( allsample$REVENUE ~allsample$SHOP, allsample )
 ```
-With a p-value of 0.00000000000000022 being far below 0.05, the Null Hypothesis that the variances are equal between the groups can be rejected. In other words, the test above shows a heteroscedasticity.
+With a p-value of 0,0000000000000022 being far below 0.05, the Null Hypothesis that the variances are equal between the groups can be rejected. The above further indicates homoscedasticity.
 
-As a result, a one way ANOVA test with the aov function would not be appropriate. Instead, the oneway function is used.
-```{r}
-oneway.test( allsample[,4]~allsample[,1], allsample )
+As a result, a one way ANOVA test with the aov function is appropriate (in case of heterocedasticity, the "oneway" function would be used for ANOVA testing).
+
+Step 7 - ANOVA testing
+----------------------
+The following Analysis of Variance (ANOVA) test helps establish if potential differences between the groups / data sets are greater than expected (i.e. worth further analysis) or perhaps are caused by chance, like a sampling error. In the latter case, further analysis would not be indicated (https://www.edanzediting.com/blogs/statistics-anova-explained?utm_expid=.AOHD7hLYSMyfsa41SGKulA.0&utm_referrer=https%3A%2F%2Fwww.google.de%2F).
+
+Parameters:
+dependent variable   -> revenues
+independent variable -> shop
+dataset              -> new users, 25 days before and after go-live of Responsive shop
+```{r ANOVA}
+#oneway.test( allsample[,4]~allsample[,1], allsample )
+cliid.aov <- aov( allsample$REVENUE ~ allsample$SHOP, allsample )
+summary( cliid.aov)
 ```
+The above listed output shows an f-value far greater than 1 (f-value of 1 stands for a variance between groups that one would expect by chance) and a p-value of 0.000000126. P-values lower than 0.05 (usually) indicate a statistically meaningfull difference between groups (compared to the statistical variances within each group). The null hypothesis (i.e. no statistically meaningful differences between the groups) can, hence, be rejected, which in turn speaks in favour of further analyses.
 
+Step 8 - querying how many new users to the web shop have made a purchase on their first visit
+----------------------------------------------------------------------------------------------
+The audience data sets available for download, allowed for a comparison of period 50 days prior to the change of the web shop and 25 days after the change. The average of buying new users was taken for both 25 day windows prior to the change.
 
-
-ANOVA
-```{r}
-mdbcAOV <- aov(mobilesample[,3] ~ mobilesample[,2])
-summary( mdbcAOV )
-ddbcAOV <- aov(desktopsample[,3] ~ desktopsample[,2])
-summary( ddbcAOV )
-adetAOV <- aov(responsivesample[,3] ~ responsivesample[,2])
-summary( adetAOV )
+First 25 days window:
+```{sql connection=con}
+SELECT nub.new_users_buying + nunb.new_users_not_buying AS new_users
+     , nub.new_users_buying
+     , nunb.new_users_not_buying
+     ,   nub.new_users_buying
+       / nunb.new_users_not_buying
+       * 100                                            AS percentage_new_users_buying
+  FROM ( SELECT Count(*)                                AS new_users_buying  
+           FROM audience
+          WHERE sd_date     >= '20170319'
+            AND sd_date     <= '20170412'
+            AND user_group   = 'new_users'
+            AND transactions > 0
+       ) nub
+     , ( SELECT Count(*) AS new_users_not_buying
+           FROM audience
+          WHERE sd_date     >= '20170319'
+            AND sd_date     <= '20170412'
+            AND user_group   = 'new_users'
+            AND transactions = 0
+       ) nunb
 ```
-With an F-statistic of 5.193 and a P-value of 0.000004, the null hypothesis can be rejected for mobile data.
-With an F-statistic of 2.58 and a P-value of 0.0172, the null hypothesis can be rejected for desktop data.
-Hence, time is a factor on revenue for mobile and desktop based revenues.
-
-
-Tukey
-```{r}
-TukeyHSD(x, which, ordered = FALSE, conf.level = 0.95, ...)
+Second 25 days window:
+```{sql connection=con}
+SELECT nub.new_users_buying + nunb.new_users_not_buying AS new_users
+     , nub.new_users_buying
+     , nunb.new_users_not_buying
+     ,   nub.new_users_buying
+       / nunb.new_users_not_buying
+       * 100                                            AS percentage_new_users_buying
+  FROM ( SELECT Count(*)                                AS new_users_buying  
+           FROM audience
+          WHERE sd_date     >= '20170413'
+            AND sd_date     <= '20170507'
+            AND user_group   = 'new_users'
+            AND transactions > 0
+       ) nub
+     , ( SELECT Count(*) AS new_users_not_buying
+           FROM audience
+          WHERE sd_date     >= '20170413'
+            AND sd_date     <= '20170507'
+            AND user_group   = 'new_users'
+            AND transactions = 0
+       ) nunb
 ```
-
-
-T test would require comparing trasactions on a customer basis (compare transactions on a customer level before and after change)
-```{r}
-before_mobile 
+Average of both windows:
+```{sql connection=con}
+SELECT 2730 + 92483 AS new_users
+     , 89 + 4090    AS new_users_buying
+     , 2641 + 88393 AS new_users_not_buying
+     , ( 0.0336993563044301400984475577432790609618
+       + 0.0462706322898872082630977566096862873757
+       )
+       / 2          AS average_perc_new_users_buying
+  FROM dual
 ```
+On average, 3.99 % of new users made a purchase before the change of the web shop.
 
+Third 25 days window:
+```{sql connection=con}
+SELECT nub.new_users_buying + nunb.new_users_not_buying AS new_users
+     , nub.new_users_buying
+     , nunb.new_users_not_buying
+     ,   nub.new_users_buying
+       / nunb.new_users_not_buying
+       * 100                                            AS percentage_new_users_buying
+  FROM ( SELECT Count(*)                                AS new_users_buying  
+           FROM audience
+          WHERE sd_date     >= '20170509'
+            AND sd_date     <= '20170602'
+            AND user_group   = 'new_users'
+            AND transactions > 0
+       ) nub
+     , ( SELECT Count(*) AS new_users_not_buying
+           FROM audience
+          WHERE sd_date     >= '20170509'
+            AND sd_date     <= '20170602'
+            AND user_group   = 'new_users'
+            AND transactions = 0
+       ) nunb
+```
+On average, 4.27% of new users made a purchase after the change of the web shop.
 
+Step 9 - calculating required sample size for A/B test
+------------------------------------------------------
+Calculate the power of the test comparing the proportions in two groups 
+parameters:
+n         -> size of sample needed / to be calculated
+p1        -> probability 1 (calculated above - probability that new users make a purchase in old shops)
+p2        -> probability 2 (calculated above - probability that new users make a purchase in new shop)
+sig.level -> significance level (Type I error probability, i.e. the incorrect rejection of a true null hypothesis / a "false positive")
+power     -> power of test (1 minus Type II error probability, i.e. incorrectly retaining a false null hypothesis / a "false negative")
+```{r PowerPropTest}
+power.prop.test(n=, p1=0.03998499, p2=0.04268766, sig.level=0.05, power=0.8)
+```
+Solving for the required number of visitors ("n"), at least 85162 need to be checked in both data sets.
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+Step 10 - A/B test
+------------------
+Testing the rate of new users buying - comparing:
+95213 new visitors, of which 4179 are buying in the old shops to
+89912 new visitors, of which 3681 are buying in the old shop
+```{r PropTest}
+prop.test(c(4179, 3681), c(95213,89912))
+```
+A/B Test conclusion
+-------------------
+The p-value is less than 0.05, so the hypothesis that the rates of new users buying are equal can be rejected and it can be assumed that the rate of new visitors to the Responsive web shop buying is higher.
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+In short, the A/B test shows an impact of the Responsive shop on new visitors buying on their first visit.
+
+Overall conclusion
+==================
+As summarized above, Responsive design has a positive impact on revenues forecasted and new visitors making a purchase on their first visit.
+
+At this is based on a relatively small time frame of 25 days, this tendency should be evaluated covering a longer time frame if meaningful deductions are to be made.
+
+Additional details on users, transactions, marketing campaigns and other external influencing factors should also help identify causation. The current data is not sufficient to isolate causing factors, like device used with respect to product purchased, preceding campaigns and the like.
