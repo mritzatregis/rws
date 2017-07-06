@@ -1,20 +1,20 @@
 #Analytics on the effects of changing a web shop to resposive design
 ===================================================================
 
-##Files:
+Files:
 ------
-rws2mod.html       => R Notebook file. Notebook knit html was edited after knitting, to anonymize content
-CreateADET.sql     => SQL script to create External Table for Web shop revenues (Mobile, Desktop and Responsive)
-CreateDDBC.sql     => SQL script to create External Table for Web shop revenues (Desktop Shop)
-CreateMDBC.sql     => SQL script to create External Table for Web shop revenues (Mobile Shop)
-CreateAUDIENCE.sql => SQL script to create External Table for web shop visitors (all shops)
+rws2mod.html       => R Notebook file. Notebook knit html was edited after knitting, to anonymize content      
+CreateADET.sql     => SQL script to create External Table for Web shop revenues (Mobile, Desktop and Responsive)      
+CreateDDBC.sql     => SQL script to create External Table for Web shop revenues (Desktop Shop)      
+CreateMDBC.sql     => SQL script to create External Table for Web shop revenues (Mobile Shop)      
+CreateAUDIENCE.sql => SQL script to create External Table for web shop visitors (all shops)      
 
-##Tools / Programming Languages used:
+Tools / Programming Languages used:
 -----------------------------------
-- R with R Notebook
-- SQL with SQL Developer (all SQL developed in SQL Developer was integrated in R Notebook document)
+- R with R Notebook      
+- SQL with SQL Developer (all SQL developed in SQL Developer was integrated in R Notebook document)      
 
-##Content and Explanantion:
+Content and Explanantion:
 -------------------------
 These analytics cover a web shop that was fused from Desktop and Mobile variants into Responsive design, which accommodates for any device. The underlying hypothesis is, that the Responsive design had an effect on conversion rates (i.e. revenues) and or new visitors to the site and their transactions. To challenge this hypothesis, the null hypothesis holds that the new web shop does not affect conversion rates or transactions of new visitors. To prove the validity of the hypotheses, data was downloaded from Google Analytics (GA), to form the basis of the underlying analytics. It should be noted, that the value of the analytics increase by including additional information, such as non-transactional data. Especially data about bouncers (visitors who have left the site without purchasing) and detail about them and / or their sessions but also influencing details like marketing campaigns (content, reach, etc.) can help to weigh the outcome of these analytics. Such inclusions were not possible due to time contraints but should be considered for further analytics.
 The analytics were based on two logical sets of data, to perform analytics from two perspectives:
@@ -29,16 +29,16 @@ The files downloaded, were then used via External Tables created im an Oracle da
 The csv format provided through the GA downloads, cannot be used without modfications. Reasons include special characters in data blocks as well as column names (like slashes, parantheses, currency sumbols, quotation marks), reserved database field names (like DATE), etc. In addition each file contains header lines as well as extensive "appendix information" that had to be filtered, before the file content can be put to database use.
 Logically, the downloads separate into the following logical parts (the four letter acronyms are used in the R and SQL programming below, as well):
 
-- MDBC: Mobile shop data before change of web site to Responsive design (up to 3 weeks of data) 
-- DDBC: Desktop shop data before change of web site to Responsive design (up to 3 weeks of data) 
-- ADET: Responsive shop data for the entire time available (from the very first month to current June), i.e. before and after the change of the web shop to Responsive design
+- MDBC: Mobile shop data before change of web site to Responsive design (up to 3 weeks of data)       
+- DDBC: Desktop shop data before change of web site to Responsive design (up to 3 weeks of data)       
+- ADET: Responsive shop data for the entire time available (from the very first month to current June), i.e. before and after the change of the web shop to Responsive design      
 
-The following analytics are divided into blocks (which in turn are subdivided in several steps):
+The following analytics are divided into blocks (which in turn are subdivided in several steps):      
 
-I   - Data Preparation (preparing GA download files and their content for later usage in database and R)
-II  - Data Exploration, Experimental Design and Hypothesis Testing (finding if there is statistical relevance to approach)
-III - Analytics (applying models to the data sets for forecasting and to find correlations, so they exist)
+I   - Data Preparation (preparing GA download files and their content for later usage in database and R)      
+II  - Data Exploration, Experimental Design and Hypothesis Testing (finding if there is statistical relevance to approach)      
+III - Analytics (applying models to the data sets for forecasting and to find correlations, so they exist)      
 
-##Further details
------------------
+Further details
+---------------
 All further details (steps, data sources, codeing, etc.) see file "ws2mod.html"
