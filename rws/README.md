@@ -15,6 +15,10 @@ Tools / Programming Languages used:
 - R with R Notebook      
 - SQL with SQL Developer (all SQL developed in SQL Developer was integrated in R Notebook document)      
 
+Comment:
+--------
+The output of the R Notebook (rws2mod.html / rws2mod.docx) was edited to anonymize the results      
+
 Content and Explanantion:
 -------------------------
 These analytics cover a web shop that was fused from Desktop and Mobile variants into Responsive design, which accommodates for any device. The underlying hypothesis is, that the Responsive design had an effect on conversion rates (i.e. revenues) and or new visitors to the site and their transactions. To challenge this hypothesis, the null hypothesis holds that the new web shop does not affect conversion rates or transactions of new visitors. To prove the validity of the hypotheses, data was downloaded from Google Analytics (GA), to form the basis of the underlying analytics. It should be noted, that the value of the analytics increase by including additional information, such as non-transactional data. Especially data about bouncers (visitors who have left the site without purchasing) and detail about them and / or their sessions but also influencing details like marketing campaigns (content, reach, etc.) can help to weigh the outcome of these analytics. Such inclusions were not possible due to time contraints but should be considered for further analytics.
@@ -42,4 +46,4 @@ III - Analytics (applying models to the data sets for forecasting and to find co
 
 Further details
 ---------------
-All further details (steps, data sources, codeing, etc.) see file "ws2mod.html"
+All further details (steps, data sources, codeing, etc.) see files "ws2mod.html" / "rws2mod.docx"
