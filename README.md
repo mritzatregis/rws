@@ -1,11 +1,10 @@
-# rws
-MSDS692
 Analytics on the effects of changing a web shop to resposive design
 ===================================================================
 
 Files:
 ------
 rws2mod.html       => R Notebook file. Notebook knit html was edited after knitting, to anonymize content      
+rws2mod.docx       => Same content as the above file. In case above file leads to a rendering problem      
 CreateADET.sql     => SQL script to create External Table for Web shop revenues (Mobile, Desktop and Responsive)      
 CreateDDBC.sql     => SQL script to create External Table for Web shop revenues (Desktop Shop)      
 CreateMDBC.sql     => SQL script to create External Table for Web shop revenues (Mobile Shop)      
