@@ -1,4 +1,4 @@
-#Analytics on the effects of changing a web shop to resposive design
+Analytics on the effects of changing a web shop to resposive design
 ===================================================================
 
 Files:
